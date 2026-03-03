@@ -1,14 +1,11 @@
-using AngleSharp;
 using ApplesToApples.ConsoleApp;
 
 namespace Console.Tests;
 
 public sealed class RatesTableParserTests
 {
-    private readonly IBrowsingContext _browsingContext = BrowsingContext.New(Configuration.Default);
-
     [Fact]
-    public async Task ParseRates_ParsesTypedFields_FromTable()
+    public void ParseRates_ParsesTypedFields_FromTable()
     {
         const string html = """
             <html>
@@ -50,8 +47,7 @@ public sealed class RatesTableParserTests
             </html>
             """;
 
-        var document = await _browsingContext.OpenAsync(req => req.Content(html));
-        var rates = RatesTableParser.ParseRates(document);
+        var rates = RatesTableParser.ParseRates(html);
 
         Assert.Equal(2, rates.Count);
 
@@ -81,8 +77,7 @@ public sealed class RatesTableParserTests
         var rawHtmlPath = Path.Combine(AppContext.BaseDirectory, fileName);
         var html = await File.ReadAllTextAsync(rawHtmlPath);
 
-        var document = await _browsingContext.OpenAsync(req => req.Content(html));
-        var rates = RatesTableParser.ParseRates(document);
+        var rates = RatesTableParser.ParseRates(html);
 
         Assert.NotEmpty(rates);
         Assert.All(rates, rate =>

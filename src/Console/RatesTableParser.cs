@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
-using AngleSharp.Dom;
 
 namespace ApplesToApples.ConsoleApp;
 
@@ -16,31 +15,25 @@ public sealed partial class RatesTableParser
         "Monthly Fee"
     ];
 
-    public static IReadOnlyList<Rate> ParseRates(IDocument document)
+    public static IReadOnlyList<Rate> ParseRates(string html)
     {
-        var tableElement = document
-            .QuerySelectorAll("table")
-            .FirstOrDefault(IsRatesTable)
-            ?? throw new InvalidOperationException("Rates table not found.");
-
-        var columnIndexes = GetRequiredColumnIndexes(tableElement);
-        var rows = tableElement.QuerySelectorAll("tbody tr");
-        var rates = new List<Rate>(rows.Length);
+        var (headers, rows) = ParseTable(html);
+        var columnIndexes = GetRequiredColumnIndexes(headers);
+        var rates = new List<Rate>(rows.Count);
 
         foreach (var row in rows)
         {
-            var cells = row.QuerySelectorAll("td");
-            if (cells.Length == 0)
+            if (row.Count == 0)
             {
                 continue;
             }
 
-            var supplier = ParseSupplier(cells[columnIndexes["Supplier"]]);
-            var pricePerUnit = ParsePricePerUnit(cells[columnIndexes["$/"]].TextContent);
-            var rateType = ParseRateType(cells[columnIndexes["Rate Type"]].TextContent);
-            var termLengthMonths = ParseTermLengthMonths(cells[columnIndexes["Term. Length"]].TextContent);
-            var earlyTerminationFee = ParseCurrency(cells[columnIndexes["Early Term. Fee"]].TextContent);
-            var monthlyFee = ParseCurrency(cells[columnIndexes["Monthly Fee"]].TextContent);
+            var supplier = ParseSupplier(row[columnIndexes["Supplier"]]);
+            var pricePerUnit = ParsePricePerUnit(row[columnIndexes["$/"]].Text);
+            var rateType = ParseRateType(row[columnIndexes["Rate Type"]].Text);
+            var termLengthMonths = ParseTermLengthMonths(row[columnIndexes["Term. Length"]].Text);
+            var earlyTerminationFee = ParseCurrency(row[columnIndexes["Early Term. Fee"]].Text);
+            var monthlyFee = ParseCurrency(row[columnIndexes["Monthly Fee"]].Text);
 
             rates.Add(new Rate(
                 Supplier: supplier,
@@ -54,21 +47,116 @@ public sealed partial class RatesTableParser
         return rates;
     }
 
-    private static bool IsRatesTable(IElement tableElement)
+    private static (List<string> Headers, List<List<HtmlCell>> Rows) ParseTable(string html)
     {
-        var headers = tableElement.QuerySelectorAll("th").Select(th => NormalizeHeader(th.TextContent)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return RequiredHeaders.All(required => headers.Any(h => h.Contains(NormalizeHeader(required), StringComparison.OrdinalIgnoreCase)));
+        var tableMatches = TableRegex().Matches(html);
+        
+        foreach (Match tableMatch in tableMatches)
+        {
+            var tableHtml = tableMatch.Value;
+            var headers = ExtractHeaders(tableHtml);
+            
+            if (HasAllRequiredHeaders(headers))
+            {
+                var rows = ExtractRows(tableHtml);
+                return (headers, rows);
+            }
+        }
+        
+        throw new InvalidOperationException("Rates table not found.");
     }
 
-    private static Dictionary<string, int> GetRequiredColumnIndexes(IElement tableElement)
+    private static List<string> ExtractHeaders(string tableHtml)
     {
-        var headers = tableElement.QuerySelectorAll("thead th").Select(th => NormalizeHeader(th.TextContent)).ToArray();
+        var headers = new List<string>();
+        var theadMatch = TheadRegex().Match(tableHtml);
+        
+        if (theadMatch.Success)
+        {
+            var headerMatches = ThRegex().Matches(theadMatch.Value);
+            foreach (Match match in headerMatches)
+            {
+                headers.Add(ExtractText(match.Value));
+            }
+        }
+        
+        return headers;
+    }
+
+    private static List<List<HtmlCell>> ExtractRows(string tableHtml)
+    {
+        var rows = new List<List<HtmlCell>>();
+        var tbodyMatch = TbodyRegex().Match(tableHtml);
+        
+        if (!tbodyMatch.Success)
+        {
+            return rows;
+        }
+        
+        var rowMatches = TrRegex().Matches(tbodyMatch.Value);
+        foreach (Match rowMatch in rowMatches)
+        {
+            var cells = new List<HtmlCell>();
+            var cellMatches = TdRegex().Matches(rowMatch.Value);
+            
+            foreach (Match cellMatch in cellMatches)
+            {
+                var cellHtml = cellMatch.Value;
+                cells.Add(new HtmlCell(cellHtml, ExtractText(cellHtml)));
+            }
+            
+            if (cells.Count > 0)
+            {
+                rows.Add(cells);
+            }
+        }
+        
+        return rows;
+    }
+
+    private static string ExtractText(string html)
+    {
+        html = ScriptStyleRegex().Replace(html, string.Empty);
+        html = TagRegex().Replace(html, " ");
+        html = html.Replace("&nbsp;", " ")
+                   .Replace("&amp;", "&")
+                   .Replace("&lt;", "<")
+                   .Replace("&gt;", ">")
+                   .Replace("&quot;", "\"")
+                   .Replace("&#39;", "'");
+        html = WhitespaceRegex().Replace(html, " ").Trim();
+        return html;
+    }
+
+    private static string ExtractElementByClass(string html, string className)
+    {
+        var pattern = $@"<[^>]*class\s*=\s*[""'][^""']*\b{Regex.Escape(className)}\b[^""']*[""'][^>]*>(.*?)</[^>]+>";
+        var match = Regex.Match(html, pattern, RegexOptions.Singleline | RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : string.Empty;
+    }
+
+    private static bool HasAllRequiredHeaders(List<string> headers)
+    {
+        var normalizedHeaders = headers
+            .Select(h => h.Replace(".", string.Empty, StringComparison.Ordinal))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        
+        return RequiredHeaders.All(required =>
+        {
+            var normalized = required.Replace(".", string.Empty, StringComparison.Ordinal);
+            return normalizedHeaders.Any(h => h.Contains(normalized, StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    private static Dictionary<string, int> GetRequiredColumnIndexes(List<string> headers)
+    {
+        var normalizedHeaders = headers.Select(h => NormalizeHeader(h)).ToArray();
         var columnIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var required in RequiredHeaders)
         {
             var expected = NormalizeHeader(required);
-            var index = Array.FindIndex(headers, h => h.Contains(expected, StringComparison.OrdinalIgnoreCase));
+            var index = Array.FindIndex(normalizedHeaders, h => h.Contains(expected, StringComparison.OrdinalIgnoreCase));
 
             if (index < 0)
                 throw new InvalidOperationException($"Required column '{required}' was not found.");
@@ -79,17 +167,22 @@ public sealed partial class RatesTableParser
         return columnIndexes;
     }
 
-    private static string ParseSupplier(IElement supplierCell)
+    private static string ParseSupplier(HtmlCell supplierCell)
     {
-        var retailTitle = supplierCell.QuerySelector(".retail-title");
-        if (retailTitle is null)
-            return CleanWhitespace(supplierCell.TextContent);
+        var retailTitleHtml = ExtractElementByClass(supplierCell.Html, "retail-title");
+        
+        if (!string.IsNullOrEmpty(retailTitleHtml))
+        {
+            var textMatch = FirstTextNodeRegex().Match(retailTitleHtml);
+            if (textMatch.Success)
+            {
+                var text = CleanWhitespace(textMatch.Groups[1].Value);
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text;
+            }
+        }
 
-        var textNode = retailTitle.ChildNodes.FirstOrDefault(n => n.NodeType == NodeType.Text)?.TextContent;
-        if (!string.IsNullOrWhiteSpace(textNode))
-            return CleanWhitespace(textNode);
-
-        return CleanWhitespace(retailTitle.TextContent);
+        return CleanWhitespace(supplierCell.Text);
     }
 
     private static decimal ParsePricePerUnit(string text) => ParseInvariantDecimal(text);
@@ -142,9 +235,38 @@ public sealed partial class RatesTableParser
 
     private static string CleanWhitespace(string text) => WhitespaceRegex().Replace(text, " ").Trim();
 
+    [GeneratedRegex(@"<table[^>]*>.*?</table>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex TableRegex();
+    
+    [GeneratedRegex(@"<thead[^>]*>.*?</thead>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex TheadRegex();
+    
+    [GeneratedRegex(@"<tbody[^>]*>.*?</tbody>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex TbodyRegex();
+    
+    [GeneratedRegex(@"<tr[^>]*>.*?</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex TrRegex();
+    
+    [GeneratedRegex(@"<th[^>]*>.*?</th>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex ThRegex();
+    
+    [GeneratedRegex(@"<td[^>]*>.*?</td>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex TdRegex();
+    
+    [GeneratedRegex(@"<(script|style)[^>]*>.*?</\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex ScriptStyleRegex();
+    
+    [GeneratedRegex(@"<[^>]+>", RegexOptions.Singleline)]
+    private static partial Regex TagRegex();
+
+    [GeneratedRegex(@"^([^<]+)")]
+    private static partial Regex FirstTextNodeRegex();
+
     [GeneratedRegex(@"(\d+)")]
     private static partial Regex TermMonthsRegex();
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 }
+
+internal readonly record struct HtmlCell(string Html, string Text);

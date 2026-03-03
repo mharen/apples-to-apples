@@ -1,10 +1,10 @@
 using System.Net;
-using System.Net.Http;
+using System.Text.RegularExpressions;
 using ApplesToApples.ConsoleApp;
 
 namespace Console.Tests;
 
-public sealed class HtmlDocumentCacheTests : IDisposable
+public sealed partial class HtmlDocumentCacheTests : IDisposable
 {
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "html-cache-tests", Guid.NewGuid().ToString("N"));
 
@@ -21,8 +21,8 @@ public sealed class HtmlDocumentCacheTests : IDisposable
         var first = await cache.LoadDocumentAsync("https://example.com/page");
         var second = await cache.LoadDocumentAsync("https://example.com/page");
 
-        Assert.Equal("Cached", first.Title);
-        Assert.Equal("Cached", second.Title);
+        Assert.Equal("Cached", ExtractTitle(first));
+        Assert.Equal("Cached", ExtractTitle(second));
         Assert.Equal(1, handler.RequestCount);
         Assert.Single(Directory.GetFiles(_tempDir, "*.html"));
     }
@@ -43,7 +43,7 @@ public sealed class HtmlDocumentCacheTests : IDisposable
 
         var doc = await cache.LoadDocumentAsync("https://example.com/offline");
 
-        Assert.Equal("FromCache", doc.Title);
+        Assert.Equal("FromCache", ExtractTitle(doc));
         Assert.Equal(0, failingHandler.RequestCount);
     }
 
@@ -66,7 +66,7 @@ public sealed class HtmlDocumentCacheTests : IDisposable
 
         var doc = await cache.LoadDocumentAsync("https://example.com/fresh");
 
-        Assert.Equal("FreshCache", doc.Title);
+        Assert.Equal("FreshCache", ExtractTitle(doc));
         Assert.Equal(0, failingHandler.RequestCount);
     }
 
@@ -92,9 +92,18 @@ public sealed class HtmlDocumentCacheTests : IDisposable
 
         var doc = await cache.LoadDocumentAsync("https://example.com/stale");
 
-        Assert.Equal("NewValue", doc.Title);
+        Assert.Equal("NewValue", ExtractTitle(doc));
         Assert.Equal(1, refreshHandler.RequestCount);
     }
+
+    private static string ExtractTitle(string html)
+    {
+        var match = TitleRegex().Match(html);
+        return match.Success ? match.Groups[1].Value : string.Empty;
+    }
+
+    [GeneratedRegex(@"<title>(.*?)</title>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex TitleRegex();
 
     public void Dispose()
     {

@@ -33,9 +33,9 @@ if (!utilitiesById.TryGetValue(utilityName, out var utility))
 try
 {
     var cache = new HtmlDocumentCache(cacheTtl: TimeSpan.FromHours(1));
-    var document = await cache.LoadDocumentAsync(utility.RateUrl);
+    var html = await cache.LoadDocumentAsync(utility.RateUrl);
 
-    var rates = RatesTableParser.ParseRates(document);
+    var rates = RatesTableParser.ParseRates(html);
 
     var ratesWithCost = rates
         .Where(r => r.RateType == RateType.Fixed

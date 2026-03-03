@@ -1,7 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using AngleSharp;
-using AngleSharp.Dom;
 
 namespace ApplesToApples.ConsoleApp;
 
@@ -9,18 +7,16 @@ public sealed class HtmlDocumentCache
 {
     private readonly HttpClient _httpClient;
     private readonly string _cacheDirectory;
-    private readonly IBrowsingContext _browsingContext;
     private readonly TimeSpan? _cacheTtl;
 
     public HtmlDocumentCache(HttpClient? httpClient = null, string? cacheDirectory = null, TimeSpan? cacheTtl = null)
     {
         _httpClient = httpClient ?? new HttpClient();
         _cacheDirectory = cacheDirectory ?? Path.Combine(AppContext.BaseDirectory, "html-cache");
-        _browsingContext = BrowsingContext.New(Configuration.Default);
         _cacheTtl = cacheTtl;
     }
 
-    public async Task<IDocument> LoadDocumentAsync(string url, CancellationToken cancellationToken = default)
+    public async Task<string> LoadDocumentAsync(string url, CancellationToken cancellationToken = default)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
             throw new ArgumentException("URL must be an absolute URI.", nameof(url));
@@ -40,11 +36,7 @@ public sealed class HtmlDocumentCache
             await File.WriteAllTextAsync(cacheFilePath, html, cancellationToken);
         }
 
-        return await _browsingContext.OpenAsync(request =>
-        {
-            request.Address(uri);
-            request.Content(html);
-        }, cancellationToken);
+        return html;
     }
 
     private string GetCacheFilePath(Uri uri)
