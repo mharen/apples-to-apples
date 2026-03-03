@@ -1,55 +1,42 @@
 ﻿using System.Text.Json;
 using ApplesToApples.ConsoleApp;
+using Microsoft.Extensions.Configuration;
 
-Utility electricUtility = new Utility(
-    "Ohio Edison",
-    "https://www.energychoice.ohio.gov/ApplesToApplesComparision.aspx?Category=Electric&TerritoryId=7&RateCode=1",
-    AnnualCostCalculator: (rate) =>
-    {
-        const int annualKwhUsage = 24000;
-        const decimal monthsPerYear = 12m;
-        return rate.PricePerUnit * annualKwhUsage
-            + rate.MonthlyFee * monthsPerYear;
-    }
-);
-
-Utility gasUtility = new Utility(
-    "Enbridge",
-    "https://www.energychoice.ohio.gov/ApplesToApplesComparision.aspx?Category=NaturalGas&TerritoryId=1&RateCode=1",
-    AnnualCostCalculator: (rate) =>
-    {
-        const int annualMcfUsage = 100;
-        const decimal monthsPerYear = 12m;
-        return rate.PricePerUnit * annualMcfUsage
-            + rate.MonthlyFee * monthsPerYear;
-    }
-);
 const string source = "puco_apples_to_apples";
 
-// parse out --gas or --electric flags
-bool isGas = args.Any(a => string.Equals(a, "--gas", StringComparison.OrdinalIgnoreCase));
-bool isElectric = args.Any(a => string.Equals(a, "--electric", StringComparison.OrdinalIgnoreCase));
+// Load configuration
+var configuration = new ConfigurationBuilder()
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+    .Build();
 
-// fail if both
-if (isGas && isElectric || (!isGas && !isElectric))
+var utilities = configuration.GetSection("Utilities").Get<List<Utility>>();
+if (utilities == null || utilities.Count == 0)
 {
-    Console.WriteLine(JsonSerializer.Serialize(new
-    {
-        timestamp = DateTimeOffset.UtcNow,
-        source = "puco_apples_to_apples",
-        status = "error",
-        message = "Must set either --gas or --electric."
-    }));
-    Environment.ExitCode = 1;
+    ReturnError("No utilities configured in appsettings.json");
     return;
 }
 
-var utility = isGas ? gasUtility : electricUtility;
+var utilitiesById = utilities.ToDictionary(u => u.Id, StringComparer.OrdinalIgnoreCase);
+
+
+// Get utility name from args
+if (args.Length == 0)
+{
+    ReturnError($"Must specify utility name. Available: {string.Join(", ", utilitiesById.Keys)}");
+    return;
+}
+
+var utilityName = args[0];
+if (!utilitiesById.TryGetValue(utilityName, out var utility))
+{
+    ReturnError($"Unknown utility '{utilityName}'. Available: {string.Join(", ", utilitiesById.Keys)}");
+    return;
+}
 
 try
 {
     var cache = new HtmlDocumentCache(cacheTtl: TimeSpan.FromHours(1));
-    var document = await cache.LoadDocumentAsync(utility.ApplesToApplesUrl);
+    var document = await cache.LoadDocumentAsync(utility.RateUrl);
 
     var rates = RatesTableParser.ParseRates(document);
 
@@ -57,7 +44,7 @@ try
         .Where(r => r.RateType == RateType.Fixed
             && r.TermLengthMonths >= 12
             && r.PricePerUnit > 0)
-        .Select(r => new RateWithCost(r, utility.AnnualCostCalculator(r)))
+        .Select(r => new RateWithCost(r, CalculateAnnualCost(r, utility.AnnualUsage)))
         .OrderBy(r => r.AnnualCost);
 
     var statesPayload = ratesWithCost.Select(ToPayload);
@@ -67,16 +54,27 @@ try
 }
 catch (Exception ex)
 {
-    var errorPayload = new
-    {
-        timestamp = DateTimeOffset.UtcNow,
-        source = source,
-        status = "error",
-        message = ex.Message
-    };
+    ReturnError(ex.Message);
+}
 
-    Console.WriteLine(JsonSerializer.Serialize(errorPayload));
+static void ReturnError(string message)
+{
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        message,
+        source,
+        status = "error",
+        timestamp = DateTimeOffset.UtcNow,
+    }));
+    
     Environment.ExitCode = 1;
+}
+
+static decimal CalculateAnnualCost(Rate rate, decimal annualUsage)
+{
+    const decimal monthsPerYear = 12m;
+    return rate.PricePerUnit * annualUsage
+        + rate.MonthlyFee * monthsPerYear;
 }
 
 static object ToPayload(RateWithCost r)
@@ -86,17 +84,17 @@ static object ToPayload(RateWithCost r)
 
     var statePayload = new
     {
-        timestamp = DateTimeOffset.UtcNow,
+        annual_cost = cost,
+        etf = rate.EarlyTerminationFee,
+        monthly_fee = rate.MonthlyFee,
+        price_per_unit = rate.PricePerUnit,
         source,
         status = "ok",
         supplier = rate.Supplier,
-        annual_cost = cost,
-        price_per_unit = rate.PricePerUnit,
         term_months = rate.TermLengthMonths,
-        monthly_fee = rate.MonthlyFee,
-        etf = rate.EarlyTerminationFee,
+        timestamp = DateTimeOffset.UtcNow,
     };
     return statePayload;
 }
 
-public record Utility(string Name, string ApplesToApplesUrl, Func<Rate, decimal> AnnualCostCalculator);
+public record Utility(string Id, decimal AnnualUsage, string RateUrl);

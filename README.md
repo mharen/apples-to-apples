@@ -2,6 +2,13 @@
 
 Scrapes Ohio energy rates from PUCO's Apples to Apples comparison tool and outputs JSON.
 
+## Configuration
+
+Utilities are configured in [Console/appsettings.json](src/Console/appsettings.json). Each utility has:
+- `Id`: Unique identifier used as the command-line argument
+- `AnnualUsage`: Annual usage for cost calculations (kWh for electric, MCF for gas)
+- `RateUrl`: PUCO Apples to Apples comparison URL
+
 ## Build
 
 ```bash
@@ -12,17 +19,13 @@ dotnet build
 ## Run
 
 ```bash
-# Electric rates
-dotnet run --project Console/Console.csproj -- --electric
+cd Console
 
-# Gas rates
-dotnet run --project Console/Console.csproj -- --gas
-```
+# Electric rates (Ohio Edison)
+dotnet run -- ohio-edison
 
-## Test
-
-```bash
-dotnet test
+# Gas rates (Enbridge)
+dotnet run -- enbridge
 ```
 
 ## Tip
@@ -30,5 +33,9 @@ dotnet test
 Get the cheapest rate using jq:
 
 ```bash
-dotnet run --project Console/Console.csproj -- --electric | jq '.[0]'
+# From src directory
+dotnet run -- ohio-edison | jq '.[0]'
+
+# From Console directory
+dotnet run -- enbridge | jq '.[0]'
 ```
