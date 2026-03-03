@@ -1,0 +1,8 @@
+**/.git
+**/.gitignore
+**/.vscode
+**/.DS_Store
+**/bin
+**/obj
+**/html-cache
+README.md

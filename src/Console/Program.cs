@@ -1,23 +1,20 @@
 ﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using ApplesToApples.ConsoleApp;
-using Microsoft.Extensions.Configuration;
 
 const string source = "puco_apples_to_apples";
 
-// Load configuration
-var configuration = new ConfigurationBuilder()
-    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
-    .Build();
+// Load configuration using source-generated JSON
+var configJson = await File.ReadAllTextAsync("appsettings.json");
+var config = JsonSerializer.Deserialize(configJson, AppJsonContext.Default.AppConfig);
 
-var utilities = configuration.GetSection("Utilities").Get<List<Utility>>();
-if (utilities == null || utilities.Count == 0)
+if (config?.Utilities == null || config.Utilities.Count == 0)
 {
     ReturnError("No utilities configured in appsettings.json");
     return;
 }
 
-var utilitiesById = utilities.ToDictionary(u => u.Id, StringComparer.OrdinalIgnoreCase);
-
+var utilitiesById = config.Utilities.ToDictionary(u => u.Id, StringComparer.OrdinalIgnoreCase);
 
 // Get utility name from args
 if (args.Length == 0)
@@ -47,9 +44,9 @@ try
         .Select(r => new RateWithCost(r, CalculateAnnualCost(r, utility.AnnualUsage)))
         .OrderBy(r => r.AnnualCost);
 
-    var statesPayload = ratesWithCost.Select(ToPayload);
-    var statesJson = JsonSerializer.Serialize(statesPayload);
-    Console.WriteLine(statesJson);
+    var payloads = ratesWithCost.Select(ToPayload).ToList();
+    var json = JsonSerializer.Serialize(payloads, AppJsonContext.Default.ListRatePayload);
+    Console.WriteLine(json);
     Environment.ExitCode = 0;
 }
 catch (Exception ex)
@@ -59,14 +56,10 @@ catch (Exception ex)
 
 static void ReturnError(string message)
 {
-    Console.WriteLine(JsonSerializer.Serialize(new
-    {
-        message,
-        source,
-        status = "error",
-        timestamp = DateTimeOffset.UtcNow,
-    }));
-    
+    var error = new ErrorResponse(message, source, "error", DateTimeOffset.UtcNow);
+    var json = JsonSerializer.Serialize(error, AppJsonContext.Default.ErrorResponse);
+    Console.WriteLine(json);
+
     Environment.ExitCode = 1;
 }
 
@@ -77,24 +70,48 @@ static decimal CalculateAnnualCost(Rate rate, decimal annualUsage)
         + rate.MonthlyFee * monthsPerYear;
 }
 
-static object ToPayload(RateWithCost r)
+static RatePayload ToPayload(RateWithCost r)
 {
     var rate = r.Rate;
     var cost = r.AnnualCost;
 
-    var statePayload = new
-    {
-        annual_cost = cost,
-        etf = rate.EarlyTerminationFee,
-        monthly_fee = rate.MonthlyFee,
-        price_per_unit = rate.PricePerUnit,
-        source,
-        status = "ok",
-        supplier = rate.Supplier,
-        term_months = rate.TermLengthMonths,
-        timestamp = DateTimeOffset.UtcNow,
-    };
-    return statePayload;
+    return new RatePayload(
+        AnnualCost: cost,
+        EarlyTerminationFee: rate.EarlyTerminationFee,
+        MonthlyFee: rate.MonthlyFee,
+        PricePerUnit: rate.PricePerUnit,
+        Source: source,
+        Status: "ok",
+        Supplier: rate.Supplier,
+        TermMonths: rate.TermLengthMonths,
+        Timestamp: DateTimeOffset.UtcNow
+    );
 }
+
+public record ErrorResponse(
+    string Message,
+    string Source,
+    string Status,
+    DateTimeOffset Timestamp
+);
+
+public record RatePayload(
+    decimal AnnualCost,
+    decimal EarlyTerminationFee,
+    decimal MonthlyFee,
+    decimal PricePerUnit,
+    string Source,
+    string Status,
+    string Supplier,
+    int TermMonths,
+    DateTimeOffset Timestamp
+);
+
+[JsonSerializable(typeof(ErrorResponse))]
+[JsonSerializable(typeof(List<RatePayload>))]
+[JsonSerializable(typeof(AppConfig))]
+public partial class AppJsonContext : JsonSerializerContext { }
+
+public record AppConfig(List<Utility> Utilities);
 
 public record Utility(string Id, decimal AnnualUsage, string RateUrl);
