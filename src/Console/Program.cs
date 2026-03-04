@@ -32,7 +32,8 @@ if (!utilitiesById.TryGetValue(utilityName, out var utility))
 
 try
 {
-    var cache = new HtmlDocumentCache(cacheTtl: TimeSpan.FromHours(1));
+    var cacheDir = Environment.GetEnvironmentVariable("CACHE_DIR");
+    var cache = new HtmlDocumentCache(cacheDirectory: cacheDir, cacheTtl: TimeSpan.FromHours(1));
     var html = await cache.LoadDocumentAsync(utility.RateUrl);
 
     var rates = RatesTableParser.ParseRates(html);

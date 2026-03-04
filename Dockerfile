@@ -17,7 +17,6 @@ RUN case ${TARGETARCH} in \
 COPY src/Console/Console.csproj Console/
 RUN dotnet restore Console/Console.csproj -r $(cat /tmp/rid)
 
-# Copy source code
 COPY src/Console/ Console/
 
 # Publish with AOT, then UPX-compress the binary
@@ -42,5 +41,8 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 COPY --from=build /app/Console .
 COPY --from=build /app/appsettings.json .
+
+ENV CACHE_DIR=/cache
+VOLUME ["/cache"]
 
 ENTRYPOINT ["./Console"] 
