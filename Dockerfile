@@ -2,8 +2,8 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
-# Install build tools required for AOT compilation
-RUN apk add --no-cache clang build-base zlib-dev
+# Install build tools required for AOT compilation + static OpenSSL libs + UPX
+RUN apk add --no-cache clang build-base zlib-dev openssl-libs-static upx
 
 # Detect target architecture and set RID
 ARG TARGETARCH
@@ -26,19 +26,20 @@ RUN dotnet restore Console/Console.csproj -r $(cat /tmp/rid)
 COPY src/Console/ Console/
 COPY src/Console.Tests/ Console.Tests/
 
-# Publish with AOT
+# Publish with AOT, then UPX-compress the binary
 WORKDIR /src/Console
 RUN dotnet publish -c Release \
     -r $(cat /tmp/rid) \
     -o /app \
     /p:PublishAot=true \
-    /p:StripSymbols=true
+    /p:StripSymbols=true && \
+    upx --best /app/Console
 
 # Runtime stage - truly minimal with just musl and SSL
 FROM scratch AS final
 WORKDIR /app
 
-# Copy minimal runtime dependencies from Alpine SDK build stage
+# Copy runtime dependencies (musl libc, SSL libraries, CA certs)
 COPY --from=build /lib/ld-musl-*.so.1 /lib/
 COPY --from=build /usr/lib/libssl.so.* /usr/lib/
 COPY --from=build /usr/lib/libcrypto.so.* /usr/lib/
