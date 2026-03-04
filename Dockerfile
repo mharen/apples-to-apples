@@ -1,4 +1,3 @@
-# Build stage
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
 WORKDIR /src
 
@@ -14,32 +13,28 @@ RUN case ${TARGETARCH} in \
     esac && \
     echo "Building for: $(cat /tmp/rid)"
 
-# Copy solution and project files
-COPY src/src.sln .
+# Copy project file and restore dependencies (with RID for AOT)
 COPY src/Console/Console.csproj Console/
-COPY src/Console.Tests/Console.Tests.csproj Console.Tests/
-
-# Restore dependencies for the target RID
 RUN dotnet restore Console/Console.csproj -r $(cat /tmp/rid)
 
 # Copy source code
 COPY src/Console/ Console/
-COPY src/Console.Tests/ Console.Tests/
 
 # Publish with AOT, then UPX-compress the binary
+# upx reduces image size from 13.2MB to 8.9MB (33%)
 WORKDIR /src/Console
 RUN dotnet publish -c Release \
     -r $(cat /tmp/rid) \
     -o /app \
     /p:PublishAot=true \
     /p:StripSymbols=true && \
-    upx --best /app/Console
+    upx --best /app/Console 
 
-# Runtime stage - truly minimal with just musl and SSL
+# Minimal runtime stage
 FROM scratch AS final
 WORKDIR /app
 
-# Copy runtime dependencies (musl libc, SSL libraries, CA certs)
+# Copy runtime dependencies
 COPY --from=build /lib/ld-musl-*.so.1 /lib/
 COPY --from=build /usr/lib/libssl.so.* /usr/lib/
 COPY --from=build /usr/lib/libcrypto.so.* /usr/lib/
