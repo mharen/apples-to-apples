@@ -17,8 +17,8 @@ RUN case ${TARGETARCH} in \
 COPY src/Console/Console.csproj Console/
 RUN dotnet restore Console/Console.csproj -r $(cat /tmp/rid)
 
-# Copy source code
-COPY src/Console/ Console/
+# Copy source code (excluding local build artifacts that would conflict with the restore above)
+COPY --exclude=obj --exclude=bin src/Console/ Console/
 
 # Publish with AOT, then UPX-compress the binary
 # upx reduces image size from 13.2MB to 8.9MB (33%)
@@ -42,5 +42,8 @@ COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 COPY --from=build /app/Console .
 COPY --from=build /app/appsettings.json .
+
+ENV CACHE_DIR=/cache
+VOLUME ["/cache"]
 
 ENTRYPOINT ["./Console"] 
