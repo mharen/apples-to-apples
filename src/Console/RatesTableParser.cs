@@ -59,12 +59,13 @@ public sealed partial class RatesTableParser
         return WhitespaceRegex().Replace(html, " ").Trim();
     }
 
-    // Gets the first text node (before any child element) — picks supplier name over trailing address/sub-content
-    private static string ParseSupplier(string cellHtml)
+    // Gets the first non-empty text node — picks supplier name over trailing address/sub-content
+    internal static string ParseSupplier(string cellHtml)
     {
-        var match = FirstTextNodeRegex().Match(cellHtml);
-        var text = match.Success ? match.Groups[1].Value.Trim() : string.Empty;
-        return string.IsNullOrWhiteSpace(text) ? ExtractText(cellHtml) : text;
+        var text = FirstTextNodeRegex().Matches(cellHtml)
+            .Select(m => m.Groups[1].Value.Trim())
+            .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+        return text ?? ExtractText(cellHtml);
     }
 
     private static decimal ParseDecimal(string text)
@@ -91,24 +92,34 @@ public sealed partial class RatesTableParser
 
     [GeneratedRegex(@"<table[^>]*>.*?</table>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex TableRegex();
+
     [GeneratedRegex(@"<thead[^>]*>.*?</thead>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex TheadRegex();
+
     [GeneratedRegex(@"<tbody[^>]*>.*?</tbody>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex TbodyRegex();
+
     [GeneratedRegex(@"<tr[^>]*>.*?</tr>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex TrRegex();
+
     [GeneratedRegex(@"<th[^>]*>.*?</th>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex ThRegex();
+
     [GeneratedRegex(@"<td[^>]*>.*?</td>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex TdRegex();
+
     [GeneratedRegex(@"<(script|style)[^>]*>.*?</\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex ScriptStyleRegex();
+
     [GeneratedRegex(@"<[^>]+>", RegexOptions.Singleline)]
     private static partial Regex TagRegex();
+
     [GeneratedRegex(@">([^<>]+)<", RegexOptions.Singleline)]
     private static partial Regex FirstTextNodeRegex();
+
     [GeneratedRegex(@"\d+")]
     private static partial Regex DigitsRegex();
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex WhitespaceRegex();
 }

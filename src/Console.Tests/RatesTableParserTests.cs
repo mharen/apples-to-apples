@@ -69,24 +69,41 @@ public sealed class RatesTableParserTests
         Assert.Equal(0m, rate2.MonthlyFee);
     }
 
-    [Theory]
-    [InlineData("Data/Raw-Electric.html")]
-    [InlineData("Data/Raw-Gas.html")]
-    public async Task ParseRates_ParsesRealRatesTable_FromSavedHtml(string fileName)
+  [Theory]
+  [InlineData("<td><span class='retail-title'>Alpha Energy<p>123 Main St</p></span></td>", "Alpha Energy")]
+  [InlineData("<td><span class='retail-title'>  Trimmed Name  <p>Address</p></span></td>", "Trimmed Name")]
+  [InlineData("<td>No Child Elements</td>", "No Child Elements")]
+  [InlineData("<td><span>Public Power LLC P.O. Box 660823 Dallas,TX 75266-0823 (888) 354-4415<p>Company Url</p></span></td>", "Public Power LLC P.O. Box 660823 Dallas,TX 75266-0823 (888) 354-4415")]
+  [InlineData("<td><span class='retail-title'>Santanna Energy Services<p>300 E Business Way, Suite 200<br/>Cincinnati,OH 45241</p><p>(866) 938-1881</p></span><p><a href='https://' target='_blank'>Sign Up</a></li></ul></td>", "Santanna Energy Services")]
+  [InlineData("""
+    <td >
+      <span class='retail-title'>Public Power LLC<p>P.O. Box 660823<br/>Dallas,TX 75266-0823</p><p>(888) 354-4415</p></span><p><a href='https://www.publicpowercompany.com/?PromoCode=Rateboard&rfid=PUCO' target='_blank'>Company Url</a></p><p><a  href='javascript:return false;' onclick='showTextInDialog("Offer Details","With a fixed rate from Public Power, you&#39;ll get the peace of mind knowing your rate stays the same for 18 months. Special offer for new, online customers.");'>Offer Details</a></p><ul class='retail-desc'><li><a href='https://shopping.publicpowercompany.com/cust/?PID=ECA22A6F-9AAC-4617-BB5A-2BEE683624C5&UID=01E8CAF6-1AE8-4CF4-B1F3-ED7BB3044F8C&OID=17EE0331-7009-4AC4-B9E6-7D720F577489&RFID=PUCO&PUC=1&STATE=OH&SN=PP&CT=E&PromoCode=RATEBOARD' target='_blank'>Terms of Service</a></li><li><a class='red' href='https://shopping.publicpowercompany.com/cust/?PID=ECA22A6F-9AAC-4617-BB5A-2BEE683624C5&UID=01E8CAF6-1AE8-4CF4-B1F3-ED7BB3044F8C&OID=17EE0331-7009-4AC4-B9E6-7D720F577489&RFID=PUCO&PUC=1&STATE=OH&SN=PP&CT=E&PromoCode=RATEBOARD' target='_blank'>Sign Up</a></li></ul>
+    </td>
+    """, "Public Power LLC")]
+  public void ParseSupplier_ExtractsFirstTextNode(string cellHtml, string expected)
+  {
+    var result = RatesTableParser.ParseSupplier(cellHtml);
+    Assert.Equal(expected, result);
+  }
+
+  [Theory]
+  [InlineData("Data/Raw-Electric.html")]
+  [InlineData("Data/Raw-Gas.html")]
+  public async Task ParseRates_ParsesRealRatesTable_FromSavedHtml(string fileName)
+  {
+    var rawHtmlPath = Path.Combine(AppContext.BaseDirectory, fileName);
+    var html = await File.ReadAllTextAsync(rawHtmlPath);
+
+    var rates = RatesTableParser.ParseRates(html);
+
+    Assert.NotEmpty(rates);
+    Assert.All(rates, rate =>
     {
-        var rawHtmlPath = Path.Combine(AppContext.BaseDirectory, fileName);
-        var html = await File.ReadAllTextAsync(rawHtmlPath);
-
-        var rates = RatesTableParser.ParseRates(html);
-
-        Assert.NotEmpty(rates);
-        Assert.All(rates, rate =>
-        {
-            Assert.False(string.IsNullOrWhiteSpace(rate.Supplier));
-            Assert.True(rate.TermLengthMonths >= 0);
-            Assert.True(rate.PricePerUnit >= 0);
-            Assert.True(rate.EarlyTerminationFee >= 0);
-            Assert.True(rate.MonthlyFee >= 0);
-        });
-    }
+      Assert.False(string.IsNullOrWhiteSpace(rate.Supplier));
+      Assert.True(rate.TermLengthMonths >= 0);
+      Assert.True(rate.PricePerUnit >= 0);
+      Assert.True(rate.EarlyTerminationFee >= 0);
+      Assert.True(rate.MonthlyFee >= 0);
+    });
+  }
 }
