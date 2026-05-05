@@ -41,6 +41,7 @@ try
     var ratesWithCost = rates
         .Where(r => r.RateType == RateType.Fixed
             && r.TermLengthMonths >= 12
+            && r.EarlyTerminationFee == 0
             && r.PricePerUnit > 0)
         .Select(r => new RateWithCost(r, CalculateAnnualCost(r, utility.AnnualUsage)))
         .OrderBy(r => r.AnnualCost);
